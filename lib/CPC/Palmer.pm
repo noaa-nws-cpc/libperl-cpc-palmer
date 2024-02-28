@@ -160,13 +160,13 @@ sub get_water_balance {
     my $sm_lower = $input->{SM_LOWER};
     unless(defined $input->{SM_UPPER})   { croak "$function: The argument hashref has no defined SM_UPPER value"; }
     my $sm_upper = $input->{SM_UPPER};
-    unless(looks_like_number($awc))      { $pet = 'NaN'; }
-    unless(looks_like_number($pet))      { $pet = 'NaN'; }
-    unless(looks_like_number($precip))   { $pet = 'NaN'; }
-    unless(looks_like_number($sm_lower)) { $pet = 'NaN'; }
-    unless(looks_like_number($sm_upper)) { $pet = 'NaN'; }
-    if($pet < 0)                         { $pet    = 0;  }
-    if($precip < 0)                      { $precip = 0;  }
+    unless(looks_like_number($awc))      { $awc      = 'NaN'; }
+    unless(looks_like_number($pet))      { $pet      = 'NaN'; }
+    unless(looks_like_number($precip))   { $precip   = 'NaN'; }
+    unless(looks_like_number($sm_lower)) { $sm_lower = 'NaN'; }
+    unless(looks_like_number($sm_upper)) { $sm_upper = 'NaN'; }
+    if($pet < 0)                         { $pet      = 0;     }
+    if($precip < 0)                      { $precip   = 0;     }
 
     # --- Return NaNs if any input data are NaN ---
 
@@ -330,7 +330,54 @@ B<Usage:>
 =cut
 
 sub get_cafec_precipitation {
+    my $function = "CPC::Palmer::get_cafec_precipitation";
 
+    # --- Validate args ---
+
+    unless(@_) { croak "$function: An argument is required"; }
+    my $input = shift;
+    unless(reftype $input eq 'HASH') { croak "$function: The argument must be a hashref"; }
+    unless(defined $input->{PET})    { croak "$function: The argument hashref has no defined PET value"; }
+    my $pet   = $input->{PET};
+    unless(defined $input->{ALPHA})  { croak "$function: The argument hashref has no defined ALPHA value"; }
+    my $alpha = $input->{ALPHA};
+    unless(defined $input->{PR})     { croak "$function: The argument hashref has no defined PR value"; }
+    my $pr    = $input->{PR};
+    unless(defined $input->{BETA})   { croak "$function: The argument hashref has no defined BETA value"; }
+    my $beta  = $input->{BETA};
+    unless(defined $input->{PRO})    { croak "$function: The argument hashref has no defined PRO value"; }
+    my $pro   = $input->{PRO};
+    unless(defined $input->{GAMMA})  { croak "$function: The argument hashref has no defined GAMMA value"; }
+    my $gamma = $input->{GAMMA};
+    unless(defined $input->{PL})     { croak "$function: The argument hashref has no defined PL value"; }
+    my $pl    = $input->{PL};
+    unless(defined $input->{DELTA})  { croak "$function: The argument hashref has no defined DELTA value"; }
+    my $delta = $input->{DELTA};
+    unless(looks_like_number($pet))   { $pet   = 'NaN'; }
+    unless(looks_like_number($alpha)) { $alpha = 'NaN'; }
+    unless(looks_like_number($pr))    { $pr    = 'NaN'; }
+    unless(looks_like_number($beta))  { $beta  = 'NaN'; }
+    unless(looks_like_number($pro))   { $pro   = 'NaN'; }
+    unless(looks_like_number($gamma)) { $gamma = 'NaN'; }
+    unless(looks_like_number($pl))    { $pl    = 'NaN'; }
+    unless(looks_like_number($delta)) { $delta = 'NaN'; }
+
+    # --- Return NaNs if any input data are NaN ---
+
+    if(
+        $pet   =~ /nan/i or
+        $alpha =~ /nan/i or
+        $pr    =~ /nan/i or
+        $beta  =~ /nan/i or
+        $pro   =~ /nan/i or
+        $gamma =~ /nan/i or
+        $pl    =~ /nan/i or
+        $delta =~ /nan/i
+    ) { return 'NaN'; }
+
+    # --- Calculate and return CAFEC precipitation ---
+
+    return $alpha*$pet + $beta*$pr + $gamma*$pro - $delta*$pl;
 }
 
 =head1 AUTHOR
