@@ -1,16 +1,17 @@
+#! /usr/bin/env perl
+
 package CPC::Palmer;
 
 use 5.006;
 use strict;
 use warnings;
 use Carp qw(carp croak cluck confess);
-use List::Util qw(all);
 use Scalar::Util qw(looks_like_number reftype);
 
 =head1 NAME
 
-CPC::Palmer - Calculate the Palmer Drought Index with the modified selection algorithm used 
-at the L<Climate Predicton Center|https://www.cpc.ncep.noaa.gov>.
+CPC::Palmer - Calculate the Palmer Drought Index with the modified selection algorithm used
+at the L<Climate Prediction Center|https://www.cpc.ncep.noaa.gov>
 
 =head1 VERSION
 
@@ -22,195 +23,314 @@ our $VERSION = '0.50';
 
 =head1 SYNOPSIS
 
-This module provides an object-oriented interface to calculate the Palmer Drought Index 
-with a modified selection algorithm used in Climate Prediction Center operations. This 
-modified Palmer Index (PMDI) removes the need for backtracking to select the final Palmer 
-Drought Severity Index value based on whether a dry or wet spell is definitively established.
+This module provides exportable functions to calculate the Palmer Drought Severity Index 
+(PDSI) with a modified selection algorithm that is used in Climate Prediction Center (CPC) 
+operations. This modified Palmer Index (PMDI) removes the need for backtracking to select 
+the final PDSI value once a new dry or wet spell becomes definitively established. When an 
+established spell is potentially ending, the PMDI is set to the weighted average of the 
+established spell and the opposite (potentially beginning) spell's PDSI values using the 
+probability that the established spell has ended.
 
-=head3 Basic Usage
+B<Usage:>
 
-    use CPC::Palmer;
-    
-    ...
-    
-    my $palmer = CPC::Palmer->new($awc);
-    $palmer->set_params(\%params);
+    use CPC::Palmer qw(get_palmer_pmdi);
+
+=head1 EXPORT
+
+The following functions can be exported from CPC::Palmer into your namespace:
+
+=over 4
+
+=item * C<< get_water_balance >>
+
+Calculates and returns the potential and actual Palmer water balance parameters based on a
+two-layer model of the soil
+
+=item * C<< get_cafec_precipitation >>
+
+Calculates and returns the climatically appropriate for existing conditions (CAFEC) 
+precipitation based on current soil moisture parameters and climatology
+
+=back
 
 =head1 FUNCTIONS
 
-=head2 new
+=head2 get_water_balance
 
-This is the constructor method for the CPC::Palmer module. The method requires one argument, 
-the total available water capacity (AWC) of the soil for the location(s) where the Palmer 
-Drought Index will be calculated. Multiple locations can be provided by supplying them in an 
-array reference. Non-numeric AWC values will be converted to 'NaN's. The method returns a 
-CPC::Palmer object - a reference blessed into the CPC::Palmer class.
+Calculates and returns the potential and actual Palmer water balance parameters based on a 
+two-layer model of the soil. The total amount of water the soil at a location can store is 
+defined as the AWC - the available water capacity. The PDSI procedure divides the soil into 
+two layers: a topsoil layer that can hold up to 1 inch of water, and a subsoil layer that 
+holds the remaining amount of the AWC. Water is first removed from or added to the topsoil 
+layer to meet demand or receive surplus moisture.
 
-When subsequent parameters are supplied to the CPC::Palmer object using the L</"set_params"> 
-method, those args will be checked to make sure their dimensions match the AWC argument 
-provided here.
+This function is designed to calculate the water balance at a single location, so all 
+argument parameters must be numeric scalars. The input parameters must be supplied in a 
+L<hashref|https://perldoc.perl.org/perlreftut> argument with the following key-value pairs:
 
-B<Usage:>
+=over 4
 
-    my $palmer_one_location   = CPC::Palmer->new($awc);  # Scalar argument
-    my $palmer_many_locations = CPC::Palmer->new(\@awc); # Array ref argument
+=item * AWC - the total available water capacity of the soil in inches
 
-=cut
+=item * PET - the potential evapotranspiration calculated for the target period in inches
 
-sub new {
-    my $class = shift;
-    my $self  = {};
+=item * PRECIP - the total accumulated precipitation calculated for the target period in 
+inches
 
-    # --- Set up object data structure ---
+=item * SM_LOWER - the soil moisture contained in the lower soil layer (subsoil) in inches 
+at the start of the target period
 
-    # Static params
+=item * SM_UPPER - the soil moisture contained in the upper soil layer (topsoil) in inches 
+at the start of the target period
 
-    $self->{CLASS}    = $class;
-    $self->{AWC}      = undef;
-    $self->{SIZE}     = undef;
-    $self->{RETURN}   = undef;
+=back
 
-    # Climo params
+The module L<CPC::PET|https://github.com/noaa-nws-cpc/libperl-cpc-pet> provides functions to 
+calculate potential evapotranspiration.
 
-    $self->{ALPHA}    = undef;
-    $self->{BETA}     = undef;
-    $self->{GAMMA}    = undef;
-    $self->{DELTA}    = undef;
-    $self->{KCHAR}    = undef;
+A source for AWC data is the Dunne and Willmott 
+(2000) gridded 
+L<Global Distribution of Plant-Extractable Water Capacity of Soil|https://daac.ornl.gov/SOILS/guides/Dunne.html> 
+available through NASA's Oak Ridge National Laboratory Distributed Active Archive Center.
 
-    # Palmer params
+When initializing the PDSI at the beginning of the data record, the soil moisture content of 
+the lower and upper layers, if unknown, can be set to field capacity. Subsequent usage of 
+this function can then compute the soil moisture levels for consecutively advancing time 
+periods using the soil moisture values returned (see below) as the new soil moisture input 
+values.
 
-    $self->{PET}      = undef;
-    $self->{PRECIP}   = undef;
-    $self->{SM_LOWER} = undef;
-    $self->{SM_UPPER} = undef;
-    $self->{X1}       = undef;
-    $self->{X2}       = undef;
-    $self->{X3}       = undef;
-    $self->{UACCUM}   = undef;
+The water balance parameters returned by the function are also stored in a hashref. The 
+key-value pairs returned are:
 
-    # --- Get arg ---
+=over 4
 
-    unless(@_ >= 1) { croak "$class\::new - An argument is required"; }
-    my $awc    = shift;
+=item * ET - the actual evapotranspiration in inches
 
-    if(defined reftype($awc) and reftype($awc) eq 'ARRAY') {
-        $self->{AWC}    = $awc;
-        $self->{SIZE}   = scalar(@{$awc});
-        $self->{RETURN} = 'ARRAY';
-    }
-    elsif(looks_like_number($awc)) {
-        $self->{AWC}    = [$awc];
-        $self->{SIZE}   = 1;
-        $self->{RETURN} = 'SCALAR';
-    }
-    else {
-        croak "$class\::new - Invalid argument - must be a numeric SCALAR or an ARRAY ref";
-    }
+=item * PR - the potential recharge in inches
 
-    # --- Validate arg ---
+=item * R - the actual recharge in inches
 
-    my $non_numeric = 0;
+=item * PRO - the potential runoff in inches
 
-    for(my $i=0; $i<$self->{SIZE}; $i++) {
+=item * RO - the actual runoff in inches
 
-        unless(looks_like_number($$self->{AWC}[$i])) {
-            $$self->{AWC}[$i] = 'NaN';
-            $non_numeric++;
-        }
+=item * PL - the potential loss in inches
 
-    }
+=item * L - the actual loss in inches
 
-    if($non_numeric) { carp "$class\::new - Found $non_numeric non-numeric AWC values - set them to NaN"; }
+=item * SM_LOWER - the soil moisture contained in the lower soil layer (subsoil) in inches 
+at the end of the target period
 
-    bless($self,$class);
-    return $self;
-}
+=item * SM_UPPER - the soil moisture contained in the upper soil layer (topsoil) in inches 
+at the end of the target period
 
-=head2 set_params
-
-This method provides an interface for the user to supply data parameters required for 
-calculating the Palmer Drought Index to the CPC::Palmer object. Supplied parameters will 
-be validated to make sure they match the dimensions of the object's AWC parameter (supplied 
-as an argument when the object was created with L</"new">). Non-numeric values will be set 
-to 'NaN's.
-
-Parameters (i.e., key/value pairs in the hash ref arg) that do not match any keys in the 
-object data will be ignored. This method will not check if all of the object parameters have 
-been successfully supplied. The methods that calculate the components of the Palmer Index 
-(such as L</"calculate_palmer_index"> or L</"calculate_water_balance">) will validate the 
-data parameters they require.
+=back
 
 B<Usage:>
 
-    $palmer->set_params(\%params);
+    my $wb_params = get_water_balance({
+        AWC      => $awc,
+        PET      => $pet,
+        PRECIP   => $precip,
+        SM_LOWER => $sm_lower,
+        SM_UPPER => $sm_upper,
+    });
+    
+    my $evapotranspiration = $wb_params->{ET};
+    my $recharge           = $wb_paramd->{R};
+    # etc.
 
 =cut
 
-sub set_params {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\:set_params";
+sub get_water_balance {
+    my $function = "CPC::Palmer::get_water_balance";
+
+    # --- Validate args ---
+
+    unless(@_) { croak "$function: An argument is required"; }
+    my $input = shift;
+    unless(reftype $input eq 'HASH')     { croak "$function: The argument must be a hashref"; }
+    unless(defined $input->{AWC})        { croak "$function: The argument hashref has no defined AWC value"; }
+    my $awc      = $input->{AWC};
+    unless(defined $input->{PET})        { croak "$function: The argument hashref has no defined PET value"; }
+    my $pet      = $input->{PET};
+    unless(defined $input->{PRECIP})     { croak "$function: The argument hashref has no defined PRECIP value"; }
+    my $precip   = $input->{PRECIP};
+    unless(defined $input->{SM_LOWER})   { croak "$function: The argument hashref has no defined SM_LOWER value"; }
+    my $sm_lower = $input->{SM_LOWER};
+    unless(defined $input->{SM_UPPER})   { croak "$function: The argument hashref has no defined SM_UPPER value"; }
+    my $sm_upper = $input->{SM_UPPER};
+    unless(looks_like_number($awc))      { $pet = 'NaN'; }
+    unless(looks_like_number($pet))      { $pet = 'NaN'; }
+    unless(looks_like_number($precip))   { $pet = 'NaN'; }
+    unless(looks_like_number($sm_lower)) { $pet = 'NaN'; }
+    unless(looks_like_number($sm_upper)) { $pet = 'NaN'; }
+    if($pet < 0)                         { $pet    = 0;  }
+    if($precip < 0)                      { $precip = 0;  }
+
+    # --- Return NaNs if any input data are NaN ---
+
+    if(
+        $awc =~ /nan/i or
+        $pet =~ /nan/i or
+        $precip =~ /nan/i or
+        $sm_lower =~ /nan/i or
+        $sm_upper =~ /nan/i
+    ) {
+        return({
+            ET       => 'NaN',
+            PR       => 'NaN',
+            R        => 'NaN',
+            PRO      => 'NaN',
+            RO       => 'NaN',
+            PL       => 'NaN',
+            L        => 'NaN',
+            SM_LOWER => 'NaN',
+            SM_UPPER => 'NaN',
+        });
+    }
+
+    # --- Determine moisture holding capacity of both soil layers ---
+
+    my($sm_lower_cap,$sm_upper_cap);
+
+    if($awc > 1)      {
+        $sm_lower_cap = $awc - 1;
+        $sm_upper_cap = 1;
+    }
+    elsif($awc > 0.1) {
+        $sm_lower_cap = 0.1;
+        $sm_upper_cap = $awc;
+    }
+    else              {
+        $sm_lower_cap = 0.1;
+        $sm_upper_cap = 0.1;
+    }
+
+    # --- Define output params ---
+
+    my($et,$pr,$r,$pro,$ro,$pl,$l,$sm_lower_final,$sm_upper_final);
+
+    # --- Calculate potential values ---
+
+    $pr  = ($sm_lower_cap + $sm_upper_cap) - ($sm_lower + $sm_upper);
+    $pro = ($sm_lower_cap + $sm_upper_cap) - $pr;  # Estimation made by Palmer 1965 that assumes observed precip is still unknown
+    my $pl_upper = $pet;
+    $pl_upper    = $pl_upper <= $sm_upper ? $pl_upper : $sm_upper;
+    my $pl_lower = $sm_lower*($pet - $pl_upper)/($sm_lower_cap + $sm_upper_cap);
+    $pl_lower    = $pl_lower <= $sm_lower ? $pl_lower : $sm_lower;
+    $pl          = $pl_lower + $pl_upper;
+
+    # --- Calculate actual values ---
+
+    my $surplus = $precip - $pet;
+
+    if($surplus >= 0) { # Precip meets or exceeds demand
+        $et             = $pet;
+        $l              = 0;
+        my $r_upper     = $surplus;
+        $r_upper        = $r_upper <= $sm_upper_cap - $sm_upper ? $r_upper : $sm_upper_cap - $sm_upper;
+        my $r_lower     = $surplus - $r_upper;
+        $r_lower        = $r_lower <= $sm_lower_cap - $sm_lower ? $r_lower : $sm_lower_cap - $sm_lower;
+        $r              = $r_lower + $r_upper;
+        $ro             = $surplus - $r;
+        $ro             = $ro > 0 ? $ro : 0;
+        $sm_lower_final = $sm_lower + $r_lower;
+        $sm_lower_final = $sm_lower_final < $sm_lower_cap ? $sm_lower_final : $sm_lower_cap;
+        $sm_upper_final = $sm_upper + $r_upper;
+        $sm_upper_final = $sm_upper_final < $sm_upper_cap ? $sm_upper_final : $sm_upper_cap;
+    }
+    else              { # Precip did not meet demand
+        my $deficit     = abs($surplus);
+        $r              = 0;
+        $ro             = 0;
+        my $l_upper     = $deficit;
+        $l_upper        = $l_upper <= $sm_upper ? $l_upper : $sm_upper;
+        my $l_lower     = $sm_lower*($deficit - $l_upper)/($sm_lower_cap + $sm_upper_cap);
+        $l_lower        = $l_lower <= $sm_lower ? $l_lower : $sm_lower;
+        $l              = $l_lower + $l_upper;
+        $et             = $precip + $l;
+        $sm_lower_final = $sm_lower - $l_lower;
+        $sm_lower_final = $sm_lower_final > 0 ? $sm_lower_final : 0;
+        $sm_upper_final = $sm_upper - $l_upper;
+        $sm_upper_final = $sm_upper_final > 0 ? $sm_upper_final : 0;
+    }
+
+    return({
+        ET       => $et,
+        PR       => $pr,
+        R        => $r,
+        PRO      => $pro,
+        RO       => $ro,
+        PL       => $pl,
+        L        => $l,
+        SM_LOWER => $sm_lower_final,
+        SM_UPPER => $sm_upper_final,
+    });
+
 }
 
-=head2 calculate_palmer_index
+=head2 get_cafec_precipitation
+
+Calculates and returns the climatically appropriate for existing conditions (CAFEC)
+precipitation in inches based on current soil moisture parameters and climatology. In the 
+PDSI calculations, the CAFEC precipitation is the precipitation amount that would maintain 
+the same PDSI index value through the target time period.
+
+This function is designed to calculate the CAFEC precipitation at a single location, so all
+argument parameters must be numeric scalars. The input parameters must be supplied in a
+L<hashref|https://perldoc.perl.org/perlreftut> argument with the following key-value pairs:
+
+=over 4
+
+=item * PET - The potential evapotranspiration calculated for the target period in inches
+
+=item * ALPHA - The climatological coefficient of evapotranspiration, which is the average 
+evapotranspiration divided by the average potential evapotranspiration for the target period
+
+=item * PR - The potential recharge calculated for the target period in inches
+
+=item * BETA - The climatological coefficient of recharge, which is the average recharge 
+divided by the average potential recharge for the target period
+
+=item * PRO - The potential runoff calculated for the target period in inches
+
+=item * GAMMA - The climatological coefficient of runoff, which is the average runoff 
+divided by the average potential runoff for the target period
+
+=item * PL - The potential loss calculated for the target period in inches
+
+=item * DELTA - The climatological coefficient of loss, which is the average loss divided by 
+the average potential loss for the target period
+
+=back
+
+Potential evapotranspiration must be calculated independently by the user. The module 
+L<CPC::PET|https://github.com/noaa-nws-cpc/libperl-cpc-pet> provides functions to calculate 
+potential evapotranspiration. The other soil moisture parameters can be calculated from the 
+L</get_water_balance> function in this module. A long archive of these soil moisture 
+parameters is needed in order to compute the climatological parameters ALPHA, BETA, GAMMA, 
+and DELTA.
+
+This function returns the CAFEC precipitation as a numeric scalar value.
+
+B<Usage:>
+
+    my $cafec_precip = get_cafec_precipitation({
+        PET   => $pet,
+        ALPHA => $et_climo/$pet_climo,
+        PR    => $pr,
+        BETA  => $r_climo/$pr_climo,
+        PRO   => $pro,
+        GAMMA => $ro_climo/$pro_climo,
+        PL    => $pl,
+        DELTA => $l_climo/$pl_climo,
+    });
 
 =cut
 
-sub calculate_palmer_index {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_palmer_index";
-}
+sub get_cafec_precipitation {
 
-=head2 calculate_water_balance
-
-=cut
-
-sub calculate_water_balance {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_water_balance";
-}
-
-=head2 calculate_cafec_precip
-
-=cut
-
-sub calculate_cafec_precip {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_cafec_precip";
-}
-
-=head2 calculate_z_index
-
-=cut
-
-sub calculate_z_index {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_z_index";
-}
-
-=head2 calculate_palmer_accountings
-
-=cut
-
-sub calculate_palmer_accountings {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_palmer_accountings";
-}
-
-=head2 calculate_palmer_pmdi
-
-=cut
-
-sub calculate_palmer_pmdi {
-    my $self   = shift;
-    my $class  = $self->{CLASS};
-    my $method = "$class\::calculate_palmer_pmdi";
 }
 
 =head1 AUTHOR
@@ -236,8 +356,6 @@ You can find documentation for this module with the perldoc command.
     perldoc CPC::Palmer
 
 =head1 REFERENCES
-
-Thornthwaite, C. W., 1948: An approach toward a rational classification of climate. I<Geographical Review>, B<38> 55-94.
 
 =head1 LICENSE
 
@@ -276,3 +394,4 @@ author or the affirmer.
 =cut
 
 1; # End of CPC::Palmer
+
