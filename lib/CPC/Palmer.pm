@@ -51,6 +51,17 @@ two-layer model of the soil
 Calculates and returns the climatically appropriate for existing conditions (CAFEC) 
 precipitation based on current soil moisture parameters and climatology
 
+=item * C<< get_moisture_departure >>
+
+Calculates and returns the moisture departure, which is the difference between the
+precipitation received during the target period and the CAFEC precipitation
+
+=item * C<< get_z_index >>
+
+Calculates and returns the Palmer Z-index, which is the Palmer moisture departure parameter
+scaled by a location specific climatic coefficient (K) term in order to be comparable across
+different locations and time periods
+
 =back
 
 =head1 FUNCTIONS
@@ -362,7 +373,7 @@ sub get_cafec_precipitation {
     unless(looks_like_number($pl))    { $pl    = 'NaN'; }
     unless(looks_like_number($delta)) { $delta = 'NaN'; }
 
-    # --- Return NaNs if any input data are NaN ---
+    # --- Return NaN if any input data are NaN ---
 
     if(
         $pet   =~ /nan/i or
@@ -378,6 +389,123 @@ sub get_cafec_precipitation {
     # --- Calculate and return CAFEC precipitation ---
 
     return $alpha*$pet + $beta*$pr + $gamma*$pro - $delta*$pl;
+}
+
+=head2 get_moisture_departure
+
+Calculates and returns the Palmer moisture departure, which is the difference between the 
+precipitation received during the target period and the CAFEC precipitation. Positive values 
+cause a positive change in the Z-Index, while negative values cause a negative change in the 
+Z-Index.
+
+This function is designed to calculate the moisture departure at a single location, so all
+argument parameters must be numeric scalars. The input parameters must be supplied in a
+L<hashref|https://perldoc.perl.org/perlreftut> argument with the following key-value pairs:
+
+=over 4
+
+=item * PRECIP - the total accumulated precipitation calculated for the target period in 
+inches
+
+=item * CAFEC_PRECIP - the climatologically appropriate for existing conditions precipitation 
+in inches
+
+=back
+
+The CAFEC precipitation can be calculated using the L</get_cafec_precipitation> function in 
+this module.
+
+This function returns the moisture departure as a numeric scalar value.
+
+B<Usage:>
+
+    my $D = get_moisture_departure({
+        PRECIP       => $precip,
+        CAFEC_PRECIP => $cafec_precip,
+    });
+
+=cut
+
+sub get_moisture_departure {
+    my $function = "CPC::Palmer::get_moisture_departure";
+
+    # --- Validate args ---
+
+    unless(@_) { croak "$function: An argument is required"; }
+    my $input = shift;
+    unless(reftype $input eq 'HASH')         { croak "$function: The argument must be a hashref"; }
+    unless(defined $input->{PRECIP})         { croak "$function: The argument hashref has no defined PRECIP value"; }
+    my $precip       = $input->{PRECIP};
+    unless(defined $input->{CAFEC_PRECIP})   { croak "$function: The argument hashref has no defined CAFEC_PRECIP value"; }
+    my $cafec_precip = $input->{CAFEC_PRECIP};
+    unless(looks_like_number($precip))       { $precip       = 'NaN'; }
+    unless(looks_like_number($cafec_precip)) { $cafec_precip = 'NaN'; }
+
+    # --- Return NaN if any input data are NaN ---
+
+    if(
+        $precip       =~ /nan/i or
+        $cafec_precip =~ /nan/i
+    ) { return 'NaN'; }
+
+    # --- Calculate and return the moisture departure ---
+
+    return $precip - $cafec_precip;
+}
+
+=head2 get_z_index
+
+Calculates and returns the Palmer Z-index, which is the Palmer moisture departure parameter 
+scaled by a location specific climatic coefficient (K) term in order to be comparable across 
+different locations and time periods.
+
+This function is designed to calculate the Palmer Z-Index at a single location, so all
+argument parameters must be numeric scalars. The input parameters must be supplied in a
+L<hashref|https://perldoc.perl.org/perlreftut> argument with the following key-value pairs:
+
+=over 4
+
+=item * D - the moisture anomaly parameter
+
+=item * K - the climatic characteristic value for the target location and time period
+
+=back
+
+The climatic characteristic (K)  must be calculated independently by the user. The module
+L<CPC::Palmer::Climatology|https://github.com/noaa-nws-cpc/libperl-cpc-palmer> provides 
+a function to calculate the climatic characteristic. Long record climatologies of the 
+L<soil moisture parameters|/get_water_balance> are required to compute K. The moisture 
+departure term can be calculated from the L</get_moisture_departure> function in this module.
+
+This function returns the Palmer Z-index as a numeric scalar value.
+
+=cut
+
+sub get_z_index {
+    my $function = "CPC::Palmer::get_z_index";
+
+    # --- Validate args ---
+
+    unless(@_) { croak "$function: An argument is required"; }
+    my $input = shift;
+    unless(reftype $input eq 'HASH') { croak "$function: The argument must be a hashref"; }
+    unless(defined $input->{D})      { croak "$function: The argument hashref has no defined D value"; }
+    my $d     = $input->{D};
+    unless(defined $input->{K})      { croak "$function: The argument hashref has no defined K value"; }
+    my $K     = $input->{K};
+    unless(looks_like_number($d))    { $d = 'NaN'; }
+    unless(looks_like_number($K))    { $K = 'NaN'; }
+
+    # --- Return NaN if any input data are NaN ---
+
+    if(
+        $d =~ /nan/i or
+        $K =~ /nan/i
+    ) { return 'NaN'; }
+
+    # --- Calculate and return the moisture departure ---
+
+    return $d*$K;
 }
 
 =head1 AUTHOR
