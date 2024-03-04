@@ -62,6 +62,14 @@ Calculates and returns the Palmer Z-index, which is the Palmer moisture departur
 scaled by a location specific climatic coefficient (K) term in order to be comparable across
 different locations and time periods
 
+=item * C<< get_palmer_accountings >>
+
+Calculates and returns the three PDSI spell accounting terms, accumulated effective wetness
+(or dryness) to end an established spell, and the probability that an established spell has
+ended
+
+=item * C<< get_palmer_pmdi >>
+
 =back
 
 =head1 FUNCTIONS
@@ -479,6 +487,13 @@ departure term can be calculated from the L</get_moisture_departure> function in
 
 This function returns the Palmer Z-index as a numeric scalar value.
 
+B<Usage:>
+
+    my $Z_index = get_z_index({
+        D => $D,
+        K => $K,
+    });
+
 =cut
 
 sub get_z_index {
@@ -506,6 +521,363 @@ sub get_z_index {
     # --- Calculate and return the moisture departure ---
 
     return $d*$K;
+}
+
+=head2 get_palmer_accountings
+
+Calculates and returns the three PDSI spell accounting terms, accumulated effective wetness 
+(or dryness) to end an established spell, and the probability that an established spell has 
+ended. The Palmer Drought Index itself is a weighted sum of the target period's Z-index value 
+and the previous Palmer Drought Index. In order to define whether a drought or wet spell has 
+begun or has ended, the PDSI procedure maintains three separate accountings of the Palmer 
+Drought Index. These are:
+
+=over 4
+
+=item * X1 - Severity index for a wet spell that is potentially becoming established
+
+=item * X2 - Severity index for a dry spell that is potentially becoming established
+
+=item * X3 - Severity index for a spell (either wet or dry) that is definitively established
+
+=back
+
+Additional information is required to determine whether an established spell has ended, 
+therefore allowing one of the potentially establishing spells to become the new definitively 
+established spell if the magnitide of the index is sufficient. This is:
+
+=over 4
+
+=item * PROB_SPELL_END - The "probability" that an established spell has ended as calculated 
+in Palmer 1965
+
+=item * UACCUM - The effective wetness (or dryness) to definitively end the established spell 
+that has accumulated since PROB_SPELL_END became non-zero
+
+=back
+
+This function requires two arguments. The first argument must be a string defining the time 
+period for which the PDSI is being calculated. The length of the time period determines the 
+value of the duration factors used to compute the severity index. Supported time periods 
+include (case-insensitive):
+
+=over 4
+
+=item * WEEK - A weekly PDSI (used in CPC operations)
+
+=item * MONTH - The original Palmer time period
+
+=item * PENTAD - A 5-day PDSI (used by UC Merced)
+
+=back
+
+The second argument is a L<hashref|https://perldoc.perl.org/perlreftut> containing the input 
+parameters needed to calculate the PDSI accountings. This function is designed to calculate 
+the PDSI accounting parameters at a single location, so all argument parameters must be 
+numeric scalars. The following key-value pairs are needed:
+
+=over 4
+
+=item * X1 - the "X1" PDSI value for the time period immediately prior to the target period
+
+=item * X2 - the "X2" PDSI value for the time period immediately prior to the target period
+
+=item * X3 - the "X3" PDSI value for the time period immediately prior to the target period
+
+=item * UACCUM - the accumulated effective wetness (or dryness) to definitively end an 
+established spell
+
+=back
+
+This function returns the PDSI accounting parameters for the target period as a hashref with 
+the following parameters:
+
+=over 4
+
+=item * X1 - the "X1" PDSI value for the target period
+
+=item * X2 - the "X2" PDSI value for the target period
+
+=item * X3 - the "X3" PDSI value for the target period
+
+=item * UACCUM - the accumulated effective wetness (or dryness) to definitively end an
+established spell
+
+=item * PROB_SPELL_END - the probability that the established spell has ended
+
+=back
+
+Since the PDSI is an iterative index, these returned parameters can be supplied to the 
+function in order to calculate the subsequent time period's PDSI accounting parameters.
+
+B<Usage:>
+
+    my $pdsi = get_palmer_accountings('week',{
+        X1     => $pdsi_x1,
+        X2     => $pdsi_x2,
+        X3     => $pdsi_x3,
+        UACCUM => $uaccum,
+    });
+    
+    $pdsi_x1        = $pdsi->{X1};
+    $pdsi_x2        = $pdsi->{X2};
+    $pdsi_x3        = $pdsi->{X3};
+    $uaccum         = $pdsi->{UACCUM};
+    $prob_spell_end = $pdsi->{PROB_SPELL_END};
+
+=cut
+
+sub get_palmer_accountings {
+    my $function = "CPC::Palmer::get_palmer_accountings";
+
+    # --- Validate args ---
+
+    unless(@_ >= 2) { croak "$function: Two arguments are required"; }
+    my $period = shift;
+
+    unless($period =~ /week/i or $period =~ /month/i or $period =~ /pentad/i) {
+        croak "$function: $period is an unsupported time period type";
+    }
+
+    my $input = shift;
+    unless(reftype $input eq 'HASH') { croak "$function: The second argument must be a hashref"; }
+    unless(defined $input->{Z_INDEX}){ croak "$function: The second argument hashref has no defined Z_INDEX value"; }
+    my $z_index     = $input->{Z_INDEX};
+    unless(defined $input->{X1})     { croak "$function: The second argument hashref has no defined X1 value"; }
+    my $prev_x1     = $input->{X1};
+    unless(defined $input->{X2})     { croak "$function: The second argument hashref has no defined X2 value"; }
+    my $prev_x2     = $input->{X2};
+    unless(defined $input->{X3})     { croak "$function: The second argument hashref has no defined X3 value"; }
+    my $prev_x3     = $input->{X3};
+    unless(defined $input->{UACCUM}) { croak "$function: The second argument hashref has no defined UACCUM value"; }
+    my $prev_uaccum = $input->{UACCUM};
+    unless(looks_like_number($z_index))     { $z_index     = 'NaN'; }
+    unless(looks_like_number($prev_x1))     { $prev_x1     = 'NaN'; }
+    unless(looks_like_number($prev_x2))     { $prev_x2     = 'NaN'; }
+    unless(looks_like_number($prev_x3))     { $prev_x3     = 'NaN'; }
+    unless(looks_like_number($prev_uaccum)) { $prev_uaccum = 'NaN'; }
+
+    if(
+        $z_index     =~ /nan/i or
+        $prev_x1     =~ /nan/i or
+        $prev_x2     =~ /nan/i or
+        $prev_x3     =~ /nan/i or
+        $prev_uaccum =~ /nan/i
+    ) { return({
+        X1             => 'NaN',
+        X2             => 'NaN',
+        X3             => 'NaN',
+        UACCUM         => 'NaN',
+        PROB_SPELL_END => 'NaN',
+        });
+    }
+
+    if($prev_x1 < 0)        { $prev_x1 = 0; }
+    if($prev_x2 > 0)        { $prev_x2 = 0; }
+    if(abs($prev_x3) < 0.5) { $prev_x3 = 0; $prev_uaccum = 0; }
+    if($prev_x3 > 0 and $prev_uaccum > 0) { $prev_uaccum = 0; }
+    if($prev_x3 < 0 and $prev_uaccum < 0) { $prev_uaccum = 0; }
+
+    # --- Set duration factors based on time period ---
+
+    my($df,$zewt);
+
+    if($period =~ /week/i)     {
+        $df   = 0.975;
+        $zewt = -2.925;
+    }
+    elsif($period =~ /month/i) {
+        $df   = 0.897;
+        $zewt = -2.691;
+    }
+    else                       { # Pentad
+        $df   = 0.9828;
+        $zewt = -2.925;  # THIS NEEDS TO BE UPDATED
+    }
+
+    # --- Parameters to calculate ---
+
+    my($x1,$x2,$x3,$uaccum,$prob_spell_end);
+
+    # --- Calculate the Palmer accountings ---
+
+    if(abs($prev_x3) <= 0.5) {  # No active spell is established
+        $x1               = $df*$prev_x1 + $z_index/3.0;
+        if($x1 < 0) { $x1 = 0; }
+        $x2               = $df*$prev_x2 + $z_index/3.0;
+        if($x2 > 0) { $x2 = 0; }
+        $uaccum           = 0;
+        $prob_spell_end   = 0;
+        $x3               = &_check_for_new_spell($x1,$x2);
+        &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+    }
+    else                     {  # Active spell
+        $x3     = $df*$prev_x3 + $z_index/3.0;
+
+        # --- Check if the spell has ended ---
+
+        if(abs($x3) <= 0.5) {  # Spell is definitively ended
+            $x1               = $df*$prev_x1 + $z_index/3.0;
+            if($x1 < 0) { $x1 = 0; }
+            $x2               = $df*$prev_x2 + $z_index/3.0;
+            if($x2 > 0) { $x2 = 0; }
+            $uaccum           = 0;
+            $prob_spell_end   = 1;
+            $x3               = &_check_for_new_spell($x1,$x2);
+            &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+        }
+
+        my $u;
+        my $z_effective;
+
+        if($x3 > 0) {  # Wet spell
+            $z_effective = $zewt*$prev_x3 + 1.5;
+
+            if($z_index <= $z_effective) {  # Spell is ended
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                $uaccum           = 0;
+                $prob_spell_end   = 1;
+                $x3               = &_check_for_new_spell($x1,$x2);
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+
+            $u = $z_index - 0.15;
+        }
+        else        {  # Dry spell
+            $z_effective = $zewt*$prev_x3 - 1.5;
+
+            if($z_index >= $z_effective) {  # Spell is ended
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                $uaccum           = 0;
+                $prob_spell_end   = 1;
+                $x3               = &_check_for_new_spell($x1,$x2);
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+
+            $u = $z_index + 0.15;
+        }
+
+        if($prev_uaccum != 0) {  # Tracking a potentially ending spell
+            $uaccum         = $prev_uaccum + $u;
+            if(($z_effective + $prev_uaccum) == 0) { $prev_uaccum += 0.00001; }
+            $prob_spell_end = $uaccum/($z_effective + $prev_uaccum);
+            if($prob_spell_end > 0.999) { $prob_spell_end = 1; }
+            if($prob_spell_end < 0.001) { $prob_spell_end = 0; }
+
+            if($prob_spell_end == 1) {  # Spell is ended
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                $uaccum           = 0;
+                $x3               = &_check_for_new_spell($x1,$x2);
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+            elsif($prob_spell_end == 0) {  # Spell is firmly re-established
+                $x1     = 0;
+                $x2     = 0;
+                $uaccum = 0;
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+            else {
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+
+        }
+        else                  {  # Spell was previously firmly established
+
+            if($x3 > 0) {  # Wet spell
+                if($z_index < 0.15)  { $uaccum = $z_index - 0.15; }
+                else                 { $uaccum = 0;               }
+            }
+            else        {  # Dry spell
+                if($z_index > -0.15) { $uaccum = $z_index + 0.15; }
+                else                 { $uaccum = 0;               }
+            }
+
+            if($z_effective == 0) { $z_effective += 0.00001; }
+            $prob_spell_end = $uaccum/$z_effective;
+            if($prob_spell_end > 0.999) { $prob_spell_end = 1; }
+            if($prob_spell_end < 0.001) { $prob_spell_end = 0; }
+
+            if($prob_spell_end == 1)   {  # Spell ended
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                $uaccum           = 0;
+                $x3               = &_check_for_new_spell($x1,$x2);
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+            elsif($prob_spell_end == 0) {  # Spell firmly established
+                $x1     = 0;
+                $x2     = 0;
+                $uaccum = 0;
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+            else                        {
+                $x1               = $df*$prev_x1 + $z_index/3.0;
+                if($x1 < 0) { $x1 = 0; }
+                $x2               = $df*$prev_x2 + $z_index/3.0;
+                if($x2 > 0) { $x2 = 0; }
+                &_return_palmer_accountings($x1,$x2,$x3,$uaccum,$prob_spell_end);
+            }
+
+        }
+
+    }
+
+}
+
+# The next two functions are non-exported, used by &get_palmer_accountings for repetitive 
+# codes.
+
+sub _check_for_new_spell {
+    my $x1 = shift;
+    my $x2 = shift;
+    my $x3 = undef;
+
+    if(abs($x1) >= 1 and abs($x2) >=1) { # Rare case of competing spells starting
+        $x3 = abs($x1) >= abs($x2) ? $x1 : $x2;
+    }
+    elsif(abs($x1) >= 1)               {  # Wet spell starting
+        $x3 = $x1;
+    }
+    elsif(abs($x2) >= 1)               {  # Dry spell starting
+        $x3 = $x2;
+    }
+    else                               {  # No spell starting
+        $x3 = 0;
+    }
+
+    return $x3;
+}
+
+sub _return_palmer_accountings {
+    my $x1             = shift;
+    my $x2             = shift;
+    my $x3             = shift;
+    my $uaccum         = shift;
+    my $prob_spell_end = shift;
+
+    return({
+        X1             => $x1,
+        X2             => $x2,
+        X3             => $x3,
+        UACCUM         => $uaccum,
+        PROB_SPELL_END => $prob_spell_end,
+    });
+
 }
 
 =head1 AUTHOR
