@@ -880,6 +880,90 @@ sub _return_palmer_accountings {
 
 }
 
+=head2 get_palmer_pmdi
+
+Calculates and returns the Palmer Modified Drought Index (PMDI), a modified selection 
+algorithm from the original technique described in Palmer (1965) and Alley (1984) that 
+removes the need for backtracking. When an established spell is potentially ending, the 
+PMDI is calculated as the weighted average of the established spell and the opposite spell, 
+with the probability of the established spell ending set as the weighting factor.
+
+This function is designed to calculate the PMDI at a single location, so all argument 
+parameters must be numeric scalars. The input parameters must be supplied in a
+L<hashref|https://perldoc.perl.org/perlreftut> argument with the following key-value pairs:
+
+=over 4
+
+=item * X1 - PDSI parameter for a potentially establishing wet spell (>= 0)
+
+=item * X2 - PDSI parameter for a potentially establishing dry spell (<= 0)
+
+=item * X3 - PDSI parameter for a definitively established wet or dry spell
+
+=item * PROB_SPELL_END - the "probability" that a definitively established spell is ending
+
+=back
+
+The input parameters can be calculated by the L</get_palmer_accountings> function in this 
+module.
+
+This function returns the PMDI as a numeric scalar value.
+
+B<Usage:>
+
+    my $pmdi = get_palmer_pmdi({
+        X1             => $x1,
+        X2             => $x2,
+        X3             => $x3,
+        PROB_SPELL_END => $prob_spell_end,
+    });
+
+=cut
+
+sub get_palmer_pmdi {
+    my $function = "CPC::Palmer::get_palmer_pmdi";
+
+    # --- Validate args ---
+
+    unless(@_) { croak "$function: An argument is required"; }
+    my $input = shift;
+    unless(reftype $input eq 'HASH')           { croak "$function: The argument must be a hashref"; }
+    unless(defined $input->{X1})               { croak "$function: The argument hashref has no defined X1 value"; }
+    my $x1             = $input->{X1};
+    unless(defined $input->{X2})               { croak "$function: The argument hashref has no defined X2 value"; }
+    my $x2             = $input->{X2};
+    unless(defined $input->{X3})               { croak "$function: The argument hashref has no defined X3 value"; }
+    my $x3             = $input->{X3};
+    unless(defined $input->{PROB_SPELL_END})   { croak "$function: The argument hashref has no defined PROB_SPELL_END value"; }
+    my $prob_spell_end = $input->{PROB_SPELL_END};
+    unless(looks_like_number($x1))             { $x1             = 'NaN'; }
+    unless(looks_like_number($x2))             { $x2             = 'NaN'; }
+    unless(looks_like_number($x3))             { $x3             = 'NaN'; }
+    unless(looks_like_number($prob_spell_end)) { $prob_spell_end = 'NaN'; }
+
+    # --- Return NaN if any input data are NaN ---
+
+    if(
+        $x1             =~ /nan/i or
+        $x2             =~ /nan/i or
+        $x3             =~ /nan/i or
+        $prob_spell_end =~ /nan/i
+    ) { return 'NaN'; }
+
+    # --- Calculate and return the PMDI ---
+
+    if(abs($x3) <= 0.5) {  # No established spell
+        return abs($x1) >= abs($x2) ? $x1 : $x2;
+    }
+    elsif($x3 > 0)      {  # Established wet spell
+        return (1 - $prob_spell_end)*$x3 + ($prob_spell_end)*$x2;
+    }
+    else                {  # Established dry spell
+        return (1 - $prob_spell_end)*$x3 + ($prob_spell_end)*$x1;
+    }
+
+}
+
 =head1 AUTHOR
 
 Adam Allgood, C<< <adam.allgood at noaa.gov> >>
