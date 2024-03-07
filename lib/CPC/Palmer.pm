@@ -70,6 +70,12 @@ ended
 
 =item * C<< get_palmer_pmdi >>
 
+Calculates and returns the Palmer Modified Drought Index (PMDI), a modified selection
+algorithm from the original technique described in Palmer (1965) and Alley (1984) that
+removes the need for backtracking
+
+=item * C<< update_palmer >>
+
 =back
 
 =head1 FUNCTIONS
@@ -962,6 +968,227 @@ sub get_palmer_pmdi {
         return (1 - $prob_spell_end)*$x3 + ($prob_spell_end)*$x1;
     }
 
+}
+
+=head2 update_palmer
+
+B<Usage:>
+
+    my $params = {
+        AWC      => $awc,
+        PET      => $pet,
+        PRECIP   => $precip,
+        SM_LOWER => $sm_lower,
+        SM_UPPER => $sm_upper,
+        ALPHA    => $alpha,
+        BETA     => $beta,
+        GAMMA    => $gamma,
+        DELTA    => $delta,
+        K        => $K,
+        X1       => $X1,
+        X2       => $X2,
+        X3       => $X3,
+        UACCUM   => $uaccum,
+    };
+    
+    my $palmer   = get_palmer('week',$params);
+    
+    # Water balance terms
+    my $et       = $palmer->{ET};
+    my $pr       = $palmer->{PR};
+    my $r        = $palmer->{R};
+    my $pro      = $palmer->{PRO};
+    my $ro       = $palmer->{RO};
+    my $pl       = $palmer->{PL};
+    my $l        = $palmer->{L};
+    my $sm_lower = $palmer->{SM_LOWER};  # Different from $params->{SM_LOWER} !
+    my $sm_upper = $palmer->{SM_UPPER};  # Different from $params->{SM_UPPER} !
+    
+    # CAFEC terms
+    my $cafec_pr = $palmer->{CAFEC_PRECIP};
+    my $d        = $palmer->{D};
+    my $Z_index  = $palmer->{Z_INDEX};
+    
+    # Palmer accounting terms
+    my $x1       = $palmer->{X1};  # Different from $params->{X1} !
+    my $x2       = $palmer->{X2};  # Different from $params->{X2} !
+    my $x3       = $palmer->{X3};  # Different from $params->{X3} !
+    my $uaccum   = $palmer->{UACCUM};  # Different from $params->{UACCUM} !
+    my $prspend  = $palmer->{PROB_SPELL_END};
+    
+    # And finally the PMDI
+    my $pmdi     = $palmer->{PMDI};
+
+Given a string argument defining the length of the time period of the input parameters, and 
+a L<hashref|https://perldoc.perl.org/perlreftut> containing all of the required input 
+parameters needed to calculate the Palmer Index, this function returns the Palmer Modified 
+Drought Index (PMDI) and all related parameters in a new hashref. This function serves as a 
+conglomeration of the other functions in this module that compute pieces of the Palmer 
+puzzle, putting it all together so that the PMDI can be computed in a single function. The 
+components of the Palmer calculations are separated out into their own functions in order to 
+make it easier to develop the Palmer climatologies, e.g., the alpha, beta, gamma, delta, and 
+K terms. See the documentation for each of these functions for more information about their 
+specific component of the Palmer procedure:
+
+=over 4
+
+=item * L</get_water_balance> - Updates the Palmer 2-layer water balance model
+
+=item * L</get_cafec_precipitation> - Updates the CAFEC (climatological) precipitation based 
+on the water balance parameters
+
+=item * L</get_moisture_departure> - Updates the Palmer moisture departure term
+
+=item * L</get_z_index> - Updates the Z-Index, which is the moisture departure term scaled 
+to be comparable across locations and time periods
+
+=item * L</get_palmer_accountings> - Updates the PDSI dry and wet spell tracking terms
+
+=item * L</get_palmer_pmdi> - Updates the PMDI, CPC's modified version of the PDSI for use in 
+near real-time operations
+
+=back
+
+The time period argument must be set to 'week', 'month', or 'pentad', as described in 
+L</get_palmer_accountings>. The parameters hashref must have the following key-value pairs. 
+See the referenced function for more information about each parameter.
+
+=over 4
+
+=item * AWC - Available water capacity of the soil (required by L</get_water_balance>)
+
+=item * PET - Potential evapotranspiration (required by L</get_water_balance>)
+
+=item * PRECIP - Precipitation (water liquid equivalent) received during the target time 
+period (required by L</get_water_balance>)
+
+=item * SM_LOWER - Water contained in the upper layer of the soil at the start of the target 
+time period (required by L</get_water_balance>)
+
+=item * SM_UPPER - Water contained in the lower layer of the soil at the start of the target 
+time period (required by L</get_water_balance>)
+
+=item * ALPHA - Climatological coefficient of evapotranspiration (required by 
+L</get_cafec_precipitation>)
+
+=item * BETA - Climatological coefficient of recharge (required by L</get_cafec_precipitation>)
+
+=item * GAMMA - Climatological coefficient of runoff (required by L</get_cafec_precipitation>)
+
+=item * DELTA - Climatological coefficient of loss (required by L</get_cafec_precipitation>)
+
+=item * K - Climatic coefficent for scaling the moisture departure (required by 
+L</get_z_index>)
+
+=item * X1 - PDSI for a potentially establishing wet spell at the start of the target period 
+(required by L</get_palmer_accountings>)
+
+=item * X2 - PDSI for a potentially establishing dry spell at the start of the target period 
+(required by L</get_palmer_accountings>)
+
+=item * X3 - PDSI for an established wet or dry spell at the start of the target period 
+(required by L</get_palmer_accountings>)
+
+=item * UACCUM - Accumulated effective moisture (or dryness) to end the established spell 
+(required by L</get_palmer_accountings>)
+
+=back
+
+The function returns a hashref containing all of the output parameters calculated during the 
+Palmer procedure. These include:
+
+=over 4
+
+=item * ET - Actual evapotranspiration
+
+=item * PR - Potential recharge
+
+=item * R - Actual recharge
+
+=item * PRO - Potential runoff
+
+=item * RO - Actual runoff
+
+=item * PL - Potential loss
+
+=item * L - Actual loss
+
+=item * SM_UPPER - Water contained in the upper layer of the soil at the end of the target
+time period
+
+=item * SM_LOWER - Water contained in the lower layer of the soil at the end of the target
+time period
+
+=item * CAFEC_PRECIP - The "climatologically appropriate for existing conditions" precipitation
+
+=item * D - Moisture departure
+
+=item * Z_INDEX - The Palmer Z-index
+
+=item * X1 - PDSI for a potentially establishing wet spell at the end of the target period
+
+=item * X2 - PDSI for a potentially establishing dry spell at the end of the target period
+
+=item * X3 - PDSI for an established wet or dry spell  at the end of the target period
+
+=item * UACCUM - Accumulated effective moisture (or dryness) to end the established spell
+
+=item * PROB_SPELL_END - The probability that the established spell has ended
+
+=item * PMDI - The modified Palmer Drought Index
+
+=back
+
+All water units are assumed to be in inches.
+
+=cut
+
+sub update_palmer {
+    my $function = "CPC::Palmer::update_palmer";
+
+    # --- Get args ---
+
+    unless(@_ >= 2) { croak "$function: Two arguments are required"; }
+    my $period = shift;
+    my $params = shift;
+
+    # --- Update the Palmer water balance model ---
+
+    my $wb_params;
+    eval   { $wb_params = get_water_balance($params); };
+    if($@) { croak "$function: Error from $@";       }
+    foreach my $key (keys %$wb_params) { $params->{$key} = $wb_params->{$key}; }
+
+    # --- Calculate the CAFEC precipitation ---
+
+    eval   { $params->{CAFEC_PRECIP} = get_cafec_precipitation($params); };
+    if($@) { croak "$function: Error from $@"; }
+
+    # --- Calculate the moisture departure ---
+
+    eval   { $params->{D} = get_moisture_departure($params); };
+    if($@) { croak "$function: Error from $@"; }
+
+    # --- Calculate the Z-index ---
+
+    eval   { $params->{D} = get_z_index($params); };
+    if($@) { croak "$function: Error from $@"; }
+
+    # --- Calculate the Palmer accounting params ---
+
+    my $palmer_params;
+    eval   { $palmer_params = get_palmer_accountings($params); };
+    if($@) { croak "$function: Error from $@";       }
+    foreach my $key (keys %$palmer_params) { $params->{$key} = $wb_params->{$key}; }
+
+    # --- Calculate the PMDI ---
+
+    eval   { $params->{PMDI} = get_palmer_pmdi($params); };
+    if($@) { croak "$function: Error from $@"; }
+
+    # --- Return params ---
+
+    return $params;
 }
 
 =head1 AUTHOR
