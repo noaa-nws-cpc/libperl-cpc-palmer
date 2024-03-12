@@ -1,0 +1,85 @@
+=pod
+
+=head1 README for the CPC::Palmer module
+
+CPC::Palmer - Calculate the Palmer Drought Index with the modified selection algorithm used
+at the L<Climate Prediction Center|https://www.cpc.ncep.noaa.gov>
+
+This README file provides instructions on how to install the module on your system. For documentation on using the CPC::Palmer module itself, see L<CPC::Palmer|https://github.com/noaa-nws-cpc/libperl-cpc-palmer/blob/main/docs/CPC/Palmer.pod>.
+
+=head1 INSTALLATION
+
+This module is not currently available through L<CPAN|https://www.cpan.org/>. Therefore, it must be installed manually on your system.
+
+=head2 Download the source code from GitHub
+
+To install the most up-to-date code, clone the GitHub repository.
+
+        git clone git@github.com:noaa-nws-cpc/libperl-cpc-palmer.git
+
+=head2 Installation
+
+To install the module, change into the top directory of the repository and run the following commands:
+
+        perl Makefile.PL
+        make
+        make test
+        make install
+
+=head1 SUPPORT AND DOCUMENTATION
+
+After installing, you can find documentation for this module with the
+perldoc command.
+
+    perldoc CPC::Palmer
+
+=head1 AUTHOR
+
+Adam Allgood C<< <adam.allgood at noaa.gov> >>
+
+=over 4
+
+Meteorologist
+
+L<Climate Prediction Center (CPC)|https://www.cpc.ncep.noaa.gov>
+
+L<National Weather Service (NWS)|https://www.weather.gov>
+
+=back
+
+=head1 LICENSE
+
+As a work of the United States Government, this project is in the
+public domain within the United States.
+
+Additionally, we waive copyright and related rights in the work
+worldwide through the CC0 1.0 Universal public domain dedication.
+
+=head2 CC0 1.0 Universal Summary
+
+This is a human-readable summary of the L<Legal Code (read the full text)|https://creativecommons.org/publicdomain/zero/1.0/legalcode>.
+
+=head3 No Copyright
+
+The person who associated a work with this deed has dedicated the work to
+the public domain by waiving all of his or her rights to the work worldwide
+under copyright law, including all related and neighboring rights, to the
+extent allowed by law.
+
+You can copy, modify, distribute and perform the work, even for commercial
+purposes, all without asking permission.
+
+=head3 Other Information
+
+In no way are the patent or trademark rights of any person affected by CC0,
+nor are the rights that other persons may have in the work or in how the
+work is used, such as publicity or privacy rights.
+
+Unless expressly stated otherwise, the person who associated a work with
+this deed makes no warranties about the work, and disclaims liability for
+all uses of the work, to the fullest extent permitted by applicable law.
+When using or citing the work, you should not imply endorsement by the
+author or the affirmer.
+
+=cut
+
