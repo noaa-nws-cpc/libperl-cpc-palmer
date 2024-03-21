@@ -1,0 +1,183 @@
+=head1 NAME
+
+CPC::Palmer::Climatology - Functions to help calculate the climatological components of the 
+Palmer Drought Severity Index (PDSI)
+
+=head1 VERSION
+
+Version 0.50
+
+
+=cut
+
+=head1 SYNOPSIS
+
+This module provides exportable functions to calculate the more complex climatological 
+parameters required to calculate the Palmer Drought Severity Index (PDSI), including the 
+the CAFEC (climatologically appropriate for existing conditions) coefficients used to compute 
+the CAFEC precipitation and the climatic coefficient (K) term used to compute the Z-Index.
+
+Long records of Palmer soil water balance model parameters are required to compute the 
+CAFEC coefficients, and the CAFEC coefficients are needed to compute the Palmer moisture 
+departures. Subsequently, a long record of moisture departure data is needed to compute the 
+climatic characteristic. These parameters can be computed using functions in 
+L<CPC::Palmer|https://github.com/noaa-nws-cpc/libperl-cpc-palmer/blob/main/docs/CPC/Palmer.pod>, 
+e.g., C<get_water_balance>, C<get_cafec_precipitation>, and C<get_moisture_departure>.
+
+B<Usage:>
+
+    use CPC::Palmer::Climatology qw(get_cafec_coeff get_k_coeff);
+
+=head1 EXPORT
+
+The following functions can be exported from CPC::Palmer into your namespace:
+
+=over 4
+
+=item * C<< get_cafec_coeff >>
+
+Given the mean potential and actual values of a water balance parameter, returns the 
+CAFEC coefficient value
+
+=item * C<< get_k_coeff >>
+
+Calculates the climatic coefficient (K) term using climatological inputs
+
+=back
+
+=head1 FUNCTIONS
+
+=head2 get_cafec_coeff
+
+Given the mean potential and actual values of a water balance parameter, returns the
+CAFEC coefficient value. Water balance parameters include evapotranspiration, recharge, 
+runoff, and loss. The coefficient of evapotranspiration is labeled "alpha" in Palmer 1965, 
+the coefficient of recharge is "beta", the coefficient of runoff is "gamma", and the 
+coefficient of loss is "delta".
+
+The calculation of alpha, beta, gamma, and delta is simply the mean (climatological) actual 
+value divided by the mean potential value for a given time period in a year, and should have 
+a value ranging from 0 to 1. If the calculated value is below 0, it will be set to 0, and 
+if it is greater than 1, it will be set to 1.
+
+This function is designed to calculate the CAFEC coefficient for one location at a time.
+
+B<Usage:>
+
+    # Example showing computing climos and passing to the function
+    use List::Util qw(sum);  # Not a required package to use the function, but needed for this example
+    ...
+    my(@pet,@et);
+    my $nyears = 2024 - 1950;
+    for(my $year=1950; $year<2024; $year++) { # Loop years in a climatological record
+        push(@pet,$pet{$year});  # Pretend our PET values were stored in this hash
+        push(@et,$et{$year});
+    }
+    my $mean_pet = sum(@pet)/$nyears;
+    my $mean_et  = sum(@et)/$nyears;
+    my $alpha    = get_cafec_coeff($mean_et,$mean_pet);
+
+
+=cut
+
+=head2 get_k_coeff
+
+This function calculates the climatic coefficient (K) term using climatological inputs. The 
+climatic coefficient is used to scale the moisture departure term so that it is comparable 
+across space and time. The moisture departure scaled by the climatic coefficient is called 
+the Z-Index.
+
+In order to compute the climatic characteristic, the following mean (climatological) 
+parameters are required to be passed as arguments I<for every time period of the year>, e.g., 
+52 (or 53) values for a weekly PDSI, or 12 values for a monthly PDSI. Therefore, each 
+argument should be an L<array ref|https://perldoc.perl.org/perlref> of the correct size.
+
+=over 4
+
+=item * PE - mean potential evapotranspiration
+
+=item * R - mean recharge
+
+=item * RO - mean runoff
+
+=item * L - mean loss
+
+=item * P - mean accumulated precipitation
+
+=item * D - mean I<absolute value of the> moisture departure
+
+=back
+
+The climatic coefficient (K) term for every time period of the year will be returned as an 
+array ref. This function is designed to calculate the K coefficients for one location at a 
+time.
+
+B<Usage:>
+
+    my $K_Coeff = get_k_coeff($PE,$R,$RO,$L,$P,$D);
+    for(my $t=0; $t<@$K_Coeff; $t++) { print "The K-Coeff for time period $t is: ".$$K_Coeff[$t]."\n"; }
+
+
+=cut
+
+=head1 AUTHOR
+
+Adam Allgood, C<< <adam.allgood at noaa.gov> >>
+
+=over 4
+
+Meteorologist
+
+L<Climate Prediction Center (CPC)|https://www.cpc.ncep.noaa.gov>
+
+L<National Weather Service (NWS)|https://www.weather.gov>
+
+=back
+
+=head1 BUGS
+
+=head1 SUPPORT
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc CPC::Palmer
+
+=head1 REFERENCES
+
+=head1 LICENSE
+
+As a work of the United States Government, this project is in the
+public domain within the United States.
+
+Additionally, we waive copyright and related rights in the work
+worldwide through the CC0 1.0 Universal public domain dedication.
+
+=head2 CC0 1.0 Universal Summary
+
+This is a human-readable summary of the L<Legal Code (read the full text)|https://creativecommons.org/publicdomain/zero/1.0/legalcode>.
+
+=head3 No Copyright
+
+The person who associated a work with this deed has dedicated the work to
+the public domain by waiving all of his or her rights to the work worldwide
+under copyright law, including all related and neighboring rights, to the
+extent allowed by law.
+
+You can copy, modify, distribute and perform the work, even for commercial
+purposes, all without asking permission.
+
+=head3 Other Information
+
+In no way are the patent or trademark rights of any person affected by CC0,
+nor are the rights that other persons may have in the work or in how the
+work is used, such as publicity or privacy rights.
+
+Unless expressly stated otherwise, the person who associated a work with
+this deed makes no warranties about the work, and disclaims liability for
+all uses of the work, to the fullest extent permitted by applicable law.
+When using or citing the work, you should not imply endorsement by the
+author or the affirmer.
+
+
+=cut
+
