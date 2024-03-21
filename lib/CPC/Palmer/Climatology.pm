@@ -28,6 +28,13 @@ parameters required to calculate the Palmer Drought Severity Index (PDSI), inclu
 the CAFEC (climatologically appropriate for existing conditions) coefficients used to compute 
 the CAFEC precipitation and the climatic coefficient (K) term used to compute the Z-Index.
 
+Long records of Palmer soil water balance model parameters are required to compute the 
+CAFEC coefficients, and the CAFEC coefficients are needed to compute the Palmer moisture 
+departures. Subsequently, a long record of moisture departure data is needed to compute the 
+climatic characteristic. These parameters can be computed using functions in 
+L<CPC::Palmer|https://github.com/noaa-nws-cpc/libperl-cpc-palmer/blob/main/docs/CPC/Palmer.pod>, 
+e.g., C<get_water_balance>, C<get_cafec_precipitation>, and C<get_moisture_departure>.
+
 B<Usage:>
 
     use CPC::Palmer::Climatology qw(get_cafec_coeff get_k_coeff);
