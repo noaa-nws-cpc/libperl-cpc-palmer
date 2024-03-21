@@ -140,7 +140,7 @@ L<National Weather Service (NWS)|https://www.weather.gov>
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc CPC::Palmer
+    perldoc CPC::Palmer::Climatology
 
 =head1 REFERENCES
 
